@@ -63,3 +63,11 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 add_library(printf SHARED printf.c)
 target_compile_options(printf PUBLIC -Wall -Wextra -pedantic -Werror)
+
+set_target_properties(printf PROPERTIES PUBLIC_HEADER "printf.h")
+
+install(TARGETS printf
+	LIBRARY DESTINATION lib
+	ARCHIVE DESTINATION lib
+	PUBLIC_HEADER DESTINATION include
+)
