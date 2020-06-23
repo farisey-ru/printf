@@ -21,6 +21,21 @@ if   (NOT PTRDIFF)
 	add_definitions(-DPRINTF_DISABLE_SUPPORT_PTRDIFF_T)
 endif(NOT PTRDIFF)
 
+option(PTR_MAC "Support MAC-address (%pM)" OFF)
+if   (PTR_MAC)
+	add_definitions(-DPRINTF_ENABLE_SUPPORT_MAC)
+endif(PTR_MAC)
+
+option(PTR_IP4 "Support IPv4-address (%pI4)" OFF)
+if   (PTR_IP4)
+	add_definitions(-DPRINTF_ENABLE_SUPPORT_IP4)
+endif(PTR_IP4)
+
+option(PTR_IP6 "Support IPv6-address (%pI6)" OFF)
+if   (PTR_IP6)
+	add_definitions(-DPRINTF_ENABLE_SUPPORT_IP6)
+endif(PTR_IP6)
+
 # numeric defines
 
 option(NTOA_BUFSIZ "ntoa conversion buffer size" OFF)
