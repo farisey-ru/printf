@@ -580,6 +580,48 @@ static size_t _etoa(out_fct_type out, char* buffer, size_t idx, size_t maxlen, d
 #endif  // PRINTF_SUPPORT_EXPONENTIAL
 #endif  // PRINTF_SUPPORT_FLOAT
 
+#ifdef PRINTF_ENABLE_SUPPORT_IP4
+static size_t _out_ip4(out_fct_type out, char* buffer, size_t idx, size_t maxlen, unsigned char *ip4, unsigned int prec, unsigned int width, unsigned int flags)
+{
+  int i = 0;
+  /* allow user to align IPv4 octets, but NOTE
+   * that gcc -Werror=format= raises
+   * "precision used with ‘%p’ gnu_printf format"
+   * for the formats like "%4.6p"
+   */
+  //precision = 0U;
+  //width = 0U;
+
+  do {
+    idx = _ntoa_long(out, buffer, idx, maxlen, (unsigned long)(*ip4), false, 10U, prec, width, flags);
+    if (i == 3)
+      break;
+    out('.', buffer, idx++, maxlen);
+    i++; ip4++;
+  } while (1);
+  return idx;
+}
+#endif
+
+#ifdef PRINTF_ENABLE_SUPPORT_IP6
+static size_t _out_ip6(out_fct_type out, char* buffer, size_t idx, size_t maxlen, unsigned char *ip6, unsigned int prec, unsigned int width, unsigned int flags)
+{
+  int i = 0;
+  /* see I4 above */
+  //precision = 0U;
+  //width = 0U;
+
+  do {
+    unsigned long x = (((unsigned long)ip6[0]) << 8) | ip6[1];
+    idx = _ntoa_long(out, buffer, idx, maxlen, x, false, 16U, prec, width, flags);
+    if (i == 7)
+      break;
+    out(':', buffer, idx++, maxlen);
+    i++; ip6 += 2;
+  } while (1);
+  return idx;
+}
+#endif
 
 // internal vsnprintf
 static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const char* format, va_list va)
@@ -831,11 +873,12 @@ static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const
       }
 
       case 'p' : {
+        void *ptr_data = va_arg(va, void*);
         format++;
 
 #ifdef PRINTF_ENABLE_SUPPORT_MAC
         if (format[0] == 'M') {
-          unsigned char *mac = (unsigned char *)va_arg(va, void *);
+          unsigned char *mac = (unsigned char *)ptr_data;
           int i = 0;
           flags |= FLAGS_ZEROPAD;
           precision = 0U;
@@ -856,24 +899,8 @@ static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const
 
 #ifdef PRINTF_ENABLE_SUPPORT_IP4
         if ( (format[0] == 'I') && (format[1] == '4') ) {
-          unsigned char *ip4 = (unsigned char *)va_arg(va, void *);
-          int i = 0;
-          /* allow user to align IPv4 octets, but NOTE
-           * that gcc -Werror=format= raises
-           * "precision used with ‘%p’ gnu_printf format"
-           * for the formats like "%4.6p"
-           */
-          //precision = 0U;
-          //width = 0U;
-
-          do {
-            idx = _ntoa_long(out, buffer, idx, maxlen, (unsigned long)(*ip4), false, 10U, precision, width, flags);
-            if (i == 3)
-              break;
-            out('.', buffer, idx++, maxlen);
-            i++; ip4++;
-          } while (1);
-
+          unsigned char *ip4 = (unsigned char *)ptr_data;
+          idx = _out_ip4(out, buffer, idx, maxlen, ip4, precision, width, flags);
           format += 2;
           break;
         }
@@ -881,23 +908,37 @@ static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const
 
 #ifdef PRINTF_ENABLE_SUPPORT_IP6
         if ( (format[0] == 'I') && (format[1] == '6') ) {
-          unsigned char *ip6 = (unsigned char *)va_arg(va, void *);
-          int i = 0;
-          /* see I4 above */
-          //precision = 0U;
-          //width = 0U;
-
-          do {
-            unsigned long x = (((unsigned long)ip6[0]) << 8) | ip6[1];
-            idx = _ntoa_long(out, buffer, idx, maxlen, x, false, 16U, precision, width, flags);
-            if (i == 7)
-              break;
-            out(':', buffer, idx++, maxlen);
-            i++; ip6 += 2;
-          } while (1);
-
+          unsigned char *ip6 = (unsigned char *)ptr_data;
+          idx = _out_ip6(out, buffer, idx, maxlen, ip6, precision, width, flags);
           format += 2;
           break;
+        }
+#endif
+
+#if defined(PRINTF_ENABLE_SUPPORT_IP4) && defined(PRINTF_ENABLE_SUPPORT_IP6)
+        if ( (format[0] == 'I') ) {
+          // sockaddr_in + sockaddr_in6
+          struct {
+            unsigned short int fam;
+            uint16_t port;
+            uint32_t v4; // sin_addr or sin6_flowinfo
+            uint32_t v6; // begin of sin6_addr, ISO C rejects 'unsigned char v6[0]'
+          } *ip = ptr_data;
+
+          format += 1;
+
+          if (ip->fam == 2) { // AF_INET
+            idx = _out_ip4(out, buffer, idx, maxlen, (unsigned char *)&ip->v4, precision, width, flags);
+            break;
+          }
+          else if (ip->fam == 10) { // AF_INET6
+            idx = _out_ip6(out, buffer, idx, maxlen, (unsigned char *)&ip->v6, precision, width, flags);
+            break;
+          }
+          /* fallthrough to print the value as just a pointer,
+           * also 'I' symbol is back to 'usual' processing.
+           */
+          format -= 1;
         }
 #endif
 
@@ -906,11 +947,11 @@ static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const
 #if defined(PRINTF_SUPPORT_LONG_LONG)
         const bool is_ll = sizeof(uintptr_t) == sizeof(long long);
         if (is_ll) {
-          idx = _ntoa_long_long(out, buffer, idx, maxlen, (uintptr_t)va_arg(va, void*), false, 16U, precision, width, flags);
+          idx = _ntoa_long_long(out, buffer, idx, maxlen, (uintptr_t)ptr_data, false, 16U, precision, width, flags);
         }
         else {
 #endif
-          idx = _ntoa_long(out, buffer, idx, maxlen, (unsigned long)((uintptr_t)va_arg(va, void*)), false, 16U, precision, width, flags);
+          idx = _ntoa_long(out, buffer, idx, maxlen, (unsigned long)((uintptr_t)ptr_data), false, 16U, precision, width, flags);
 #if defined(PRINTF_SUPPORT_LONG_LONG)
         }
 #endif
